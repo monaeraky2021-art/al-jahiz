@@ -1,10 +1,112 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
+const LESSONS_AR = [
+  "الله ربي","سورة الفاتحة","الصدق طريق الجنة","أركان الإسلام","سورة الإخلاص","مولد الرسول محمد ﷺ",
+  "الله الرَّحمن","سورة الفيل","دعاء النوم","أبو هريرة رضي الله عنه","الوضوء","الرَّحمة بالحيوان",
+  "سورة العلق","أركان الإيمان","آداب النظافة في الإسلام","المسلم عون لأخيه","أحب أسرتي","رسولنا محمد ﷺ في رعاية جده وعمه",
+  "الله الخالق العظيم","سورة الناس","صلاتي نور حياتي","البر حسن الخلق","سورة قريش",
+  "أحب مخلوقات ربي","سورة الكوثر","أسماء بنت أبي بكر الصديق رضي الله عنها","من آداب الطعام","الرحمة",
+  "التسامح","أحب الزراعة","خيركم من تعلم القرآن وعلمه","سورة النصر",
+  "سورة البروج","آداب دخول المنزل والخروج منه","أصدق القول","فضل الصلاة على النبي ﷺ","ثمرات العبادة","فضل تلاوة القرآن الكريم",
+  "الله الرزاق","سورة التين","آداب السفر","الهجرة إلى الحبشة","صلاة التطوع","سورة الأعلى",
+  "سورة العاديات","الإيمان بالرسل والأنبياء عليهم السلام","الرفق بالحيوان","خديجة بنت خويلد رضي الله عنها","صلاة الوتر","سورة الزلزلة",
+  "سورة الشرح","الإيمان بالكتب السماوية","فضل إماطة الأذى عن الطريق","إسلام أهل المدينة - بيعة العقبة","صلاة الجماعة","سورة الضحى",
+  "سورة القارعة","المسئولية تجاه المجتمع","التعاون","الهجرة إلى المدينة المنورة","صلاة الجمعة","سورة القدر",
+  "سورة البينة","العمل عبادة","الأمانة","بناء المسجد النبوي والمؤاخاة","سنن الصلاة","سورة التكاثر",
+  "آداب الطريق","بيعة العقبة","خلق التعاون","خلق الأمانة",
+  "سورة النبأ (1-16)","الإيمان باليوم الآخر","أحكام النون الساكنة والتنوين - الإظهار الحلقي","من أخلاق النبي ﷺ: الصدق والأمانة","أدعية الاستفتاح والركوع والسجود",
+  "سورة النبأ (17-40)","سورة النازعات","الرفق في التعامل مع الكائنات","رحلة الرسول ﷺ إلى الطائف","صلاة المسافر",
+  "سورة عبس","الإيمان بالقدر","أحكام النون الساكنة والتنوين - الإدغام","الصبر واليقين: قصة أصحاب الأخدود","صلاة المريض",
+  "سورة التكوير","البيئة أمانة","أحكام النون الساكنة والتنوين - الإقلاب","الإسراء والمعراج","صلاة العيدين",
+  "سورة الانفطار","العمل الصالح: مفهومه وأنواعه","أحكام النون الساكنة والتنوين - الإخفاء الحقيقي","إسلام الأنصار: بيعة العقبة","أحكام الميم الساكنة",
+  "سورة المطففين","التراحم والتعاطف","التوكل على الله",
+  "سورة السجدة (1-12)","أحكام المد: المد الطبيعي","بشارات الخير في السنة النبوية","صلاة التطوع: السنن الرواتب",
+  "سورة السجدة (13-30)","التفكر في خلق الله","أحكام المد: المد الفرعي بسبب الهمز","رحمة النبي ﷺ","أحكام الإمامة في الصلاة",
+  "سورة الملك (1-14)","الإيمان بالقدر: الرضا بقضاء الله","أحكام المد: المد الفرعي بسبب السكون","أهمية العمل في الإسلام","صلاة المريض والمسافر",
+  "سورة الملك (15-30)","أحكام المد: مد الصلة","صلاة الجمعة والعيدين",
+  "سورة الواقعة (1-56)","العمل الصالح: مفهومه وأثره","التعاون: قوة المجتمع","بناء المجتمع في المدينة المنورة","آداب المجلس",
+  "سورة الواقعة (57-96)",
+  "سورة يس (1-12)","الاستقصاء العلمي","أحكام المد: المد اللازم","أخلاق الرسول ﷺ: التواضع واللين",
+  "سورة يس (13-27)","اليوم الآخر: حقيقة البعث والنشور","أحكام المد: المد العارض للسكون","شجاعة النبي ﷺ","أحكام الصيام",
+  "سورة يس (28-54)","آداب الطعام والشراب في الإسلام","السيدة فاطمة الزهراء رضي الله عنها",
+  "سورة يس (55-83)","العدل في الإسلام","غزوة بدر الكبرى","صلاة الكسوف والخسوف والاستسقاء",
+  "سورة القلم (1-33)","أهمية العلم والعمل في الإسلام","غزوة أحد: الدروس والعبر","أحكام الزكاة ومصارفها",
+  "سورة القلم (34-52)","المحافظة على البيئة في الإسلام","صلح الحديبية ونتائجه","آداب الحديث والمجالس",
+  "سورة الفرقان (1-20)","الإيمان باليوم الآخر: الحساب والجزاء","أحكام التجويد: مخارج الحروف - الجوف والحلق","من أخلاق الرسول ﷺ: الأمانة والوفاء","صلاة الجماعة وأحكامها",
+  "سورة الفرقان (21-44)","أحكام التجويد: مخارج الحروف - اللسان","ثبات النبي ﷺ وصبره","أحكام الزكاة: زكاة الأنعام والزروع",
+  "سورة الفرقان (45-62)","الإيمان بالرسل عليهم السلام","أحكام التجويد: مخارج الحروف - الشفتان والخيشوم","السيدة عائشة أم المؤمنين رضي الله عنها","أحكام الحج وعمرة",
+  "سورة الفرقان (63-77)","الاعتدال في الإنفاق","الشورى في الإسلام","غزوة خيبر","أحكام الأضحية والعقيقة",
+  "سورة القصص (1-21)","الحياء في الإسلام","أهمية الوقت في حياة المسلم","فتح مكة: النصر المبين","أحكام المواريث",
+  "سورة القصص (22-43)","التراحم والتعاطف الاجتماعي","المسؤولية تجاه الوطن","غزوة حنين","آداب الاستئذان والبيوت",
+  "سورة الحجرات (1-10)","المنهج العلمي في الإسلام: التثبت والتبين","أحكام التجويد: صفات الحروف - الصفات التي لها ضد","من أخلاق النبي ﷺ: الحكمة والموعظة الحسنة",
+  "سورة الحجرات (11-18)","اليوم الآخر: الجنة والنار","أحكام التجويد: صفات الحروف - الصفات التي ليس لها ضد","ثبات النبي ﷺ وصبره في الدعوة","أحكام الزكاة: زكاة النقدين وعروض التجارة",
+  "سورة الكهف (1-16)","الإيمان بالملائكة عليهم السلام","السيدة خديجة بنت خويلد رضي الله عنها",
+  "سورة الكهف (17-31)","التوازن والاعتدال في الإسلام","المسؤولية تجاه المجتمع والوطن","غزوة تبوك",
+  "سورة الكهف (32-53)","الحياء والعفة في الإسلام","أهمية العمل والإنتاج في بناء الحضارة","حجة الوداع ووفاة النبي ﷺ","أحكام المعاملات المالية في الإسلام",
+  "سورة الكهف (54-82)","المواطنة الإيجابية","خلفاء الرسول ﷺ: أبو بكر الصديق وعمر بن الخطاب",
+  "سورة الكهف (83-110)","المنهج العلمي في القرآن الكريم","فقه الصلاة: صلاة الجماعة وأحكام الإمامة",
+  "سورة الأحزاب (1-27)","عالم الغيب: الملائكة والجن","أحكام الزكاة: المصارف والغايات",
+  "سورة الأحزاب (28-48)","الإيمان بالكتب السماوية: الهداية الإلهية","أم المؤمنين السيدة عائشة رضي الله عنها","أحكام الحج والعمرة",
+  "سورة الأحزاب (49-73)","العفة والحياء في الإسلام","المسؤولية المجتمعية والعمل التطوعي","فتح مكة: منهج العفو والتسامح","فقه المعاملات: البيوع المحرمة",
+  "سورة يوسف (1-21)","أهمية الوقت والعمل الصالح","أحكام النكاح في الإسلام",
+  "سورة يوسف (22-53)","المواطنة الصالحة والولاء للوطن","الخلفاء الراشدون: عثمان بن عفان وعلي بن أبي طالب","آداب الاستئذان والعلاقات الأسرية",
+];
+
+const LESSONS_EN = [
+  "Allah is my Lord","Surah Al-Fatiha","Truthfulness: The Path to Paradise","The Five Pillars of Islam","Surah Al-Ikhlas","The Birth of Prophet Muhammad ﷺ",
+  "Allah is Al-Rahman","Surah Al-Fil","Supplication Before Sleep","Abu Hurairah (May Allah be pleased with him)","Wudu (Ablution)","Mercy Towards Animals",
+  "Surah Al-Alaq","The Six Pillars of Faith","Islamic Hygiene Etiquettes","A Muslim Helps His Brother","I Love My Family","Prophet Muhammad ﷺ Under the Care of His Grandfather and Uncle",
+  "Allah: The Great Creator","Surah An-Nas","My Prayer is the Light of My Life","Righteousness is Good Character","Surah Quraysh",
+  "I Love Allah's Creatures","Surah Al-Kawthar","Asma bint Abi Bakr","Etiquettes of Eating","Mercy","Tolerance","I Love Farming","The Best of You Learns the Quran and Teaches It","Surah An-Nasr",
+  "Surah Al-Buruj","Etiquettes of Entering and Leaving Home","Truthfulness","The Virtue of Sending Blessings upon the Prophet ﷺ","The Fruits of Worship","The Virtue of Reciting the Quran",
+  "Allah is Al-Razzaq","Surah At-Tin","Etiquettes of Travel","Migration to Abyssinia","Voluntary Prayer","Surah Al-Ala",
+  "Surah Al-Adiyat","Belief in Prophets and Messengers","Kindness to Animals","Khadijah bint Khuwaylid","Witr Prayer","Surah Az-Zalzalah",
+  "Surah Ash-Sharh","Belief in the Holy Books","Removing Harm from the Road","The Pledge of Aqabah","Congregational Prayer","Surah Ad-Duha",
+  "Surah Al-Qari'ah","Responsibility Towards Society","Cooperation","Migration to Madinah","Friday Prayer","Surah Al-Qadr",
+  "Surah Al-Bayyinah","Work is Worship","Trustworthiness","Building the Prophet's Mosque and Brotherhood","Sunnah Acts of Prayer","Surah At-Takathur",
+  "Surah An-Naba (1-16)","Belief in the Day of Judgment","Noon Saakinah: Ith-har","The Prophet's Character: Honesty and Trustworthiness","Supplications in Prayer",
+  "Surah An-Naba (17-40)","Surah An-Nazi'at","Gentleness with All Creatures","The Prophet's Journey to Ta'if","Prayer While Travelling",
+  "Surah Abasa","Belief in Divine Decree","Noon Saakinah: Idgham","Patience and Certainty: The People of the Trench","Prayer for the Sick",
+  "Surah At-Takwir","The Environment is a Trust","Noon Saakinah: Iqlab","Al-Isra' and Al-Mi'raj","Friday Prayer",
+  "Surah Al-Infitar","Good Deeds: Types and Concept","Noon Saakinah: Ikhfa'","The Ansar Accept Islam","Eid Prayer",
+  "Surah Al-Mutaffifin","Compassion and Empathy","Reliance on Allah (Tawakkul)",
+  "Surah As-Sajdah (1-12)","Belief in the Day of Judgment: Resurrection","Natural Madd","Voluntary Prayer: Sunnah Prayers",
+  "Surah As-Sajdah (13-30)","Reflecting on Allah's Creation","Madd due to Hamzah","The Prophet's Mercy","Rules of Leading Prayer",
+  "Surah Al-Mulk (1-14)","Belief in Divine Decree","Madd due to Sukoon","The Importance of Work in Islam","Prayer for the Sick and Traveller",
+  "Surah Al-Mulk (15-30)","Silah Madd","Friday and Eid Prayers",
+  "Surah Al-Waqi'ah (1-56)","Good Deeds: Concept and Impact","Cooperation: The Strength of Society","Building Society in Madinah","Etiquettes of Gatherings",
+  "Surah Al-Waqi'ah (57-96)",
+  "Surah Ya-Sin (1-12)","Scientific Inquiry","Obligatory Madd","The Prophet's Character: Humility and Gentleness","Congregational and Friday Prayer",
+  "Surah Ya-Sin (13-27)","The Day of Judgment","Arid Lil-Sukoon Madd","The Prophet's Courage in Truth","Rules of Fasting",
+  "Surah Ya-Sin (28-54)","Etiquettes of Food and Drink","Fatimah Az-Zahra",
+  "Surah Ya-Sin (55-83)","Justice in Islam","Battle of Badr","Eclipse and Rain Prayers",
+  "Surah Al-Qalam (1-33)","The Importance of Knowledge and Work","Battle of Uhud","Zakat and its Recipients",
+  "Surah Al-Qalam (34-52)","Environmental Conservation in Islam","Treaty of Hudaybiyyah","Etiquettes of Speech and Gatherings",
+  "Surah Al-Furqan (1-20)","Belief in the Day of Judgment: Reckoning","Tajweed: Articulation Points - Throat","The Prophet's Character: Honesty and Loyalty","Congregational Prayer Rules",
+  "Surah Al-Furqan (21-44)","Tajweed: Articulation Points - Tongue","The Prophet's Steadfastness","Zakat on Livestock and Crops",
+  "Surah Al-Furqan (45-62)","Belief in the Messengers","Tajweed: Articulation Points - Lips and Nose","Aisha (Mother of the Believers)","Hajj and Umrah",
+  "Surah Al-Furqan (63-77)","Moderation in Spending","Shura in Islam","Battle of Khaybar","Udhiyah and Aqiqah",
+  "Surah Al-Qasas (1-21)","Modesty in Islam","The Importance of Time","The Conquest of Makkah","Inheritance: General Principles",
+  "Surah Al-Qasas (22-43)","Social Compassion","Responsibility Towards the Nation","Battle of Hunayn","Etiquettes of Seeking Permission",
+  "Surah Al-Hujurat (1-10)","Scientific Method in Islam: Verification","Letter Characteristics - With Opposites","The Prophet's Wisdom","Eclipse and Rain Prayers",
+  "Surah Al-Hujurat (11-18)","Paradise and Hellfire","Letter Characteristics - Without Opposites","The Prophet's Steadfastness in Calling to Islam","Zakat on Gold, Silver and Trade",
+  "Surah Al-Kahf (1-16)","Belief in Angels","Khadijah bint Khuwaylid",
+  "Surah Al-Kahf (17-31)","Balance and Moderation in Islam","Responsibility Towards Society and Nation","Battle of Tabuk","Udhiyah and Aqiqah",
+  "Surah Al-Kahf (32-53)","Modesty and Chastity in Islam","The Importance of Work and Production","The Farewell Pilgrimage","Financial Transactions in Islam",
+  "Surah Al-Kahf (54-82)","Human Compassion","Positive Citizenship","The Rightly-Guided Caliphs: Abu Bakr and Umar",
+  "Surah Al-Kahf (83-110)","Scientific Method in the Quran","Congregational Prayer and Imamate",
+  "Surah Al-Ahzab (1-27)","The Unseen World: Angels and Jinn","Zakat: Distribution and Purposes",
+  "Surah Al-Ahzab (28-48)","Belief in the Holy Books","Aisha (Mother of the Believers)","Hajj and Umrah",
+  "Surah Al-Ahzab (49-73)","Chastity and Modesty in Islam","Community Responsibility and Volunteering","The Conquest of Makkah: Forgiveness","Prohibited Trade Transactions",
+  "Surah Yusuf (1-21)","The Importance of Time and Good Deeds","Marriage in Islam",
+  "Surah Yusuf (22-53)","Patriotism and Loyalty","The Rightly-Guided Caliphs: Uthman and Ali","Etiquettes of Seeking Permission",
+];
+
 function markdownToHTML(md) {
   if (!md) return '';
-  let html = mda
+  let html = md
     .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
@@ -42,6 +144,8 @@ export default function AlJahiz() {
   const [grade, setGrade] = useState('');
   const [subject, setSubject] = useState('');
   const [topic, setTopic] = useState('');
+  const [search, setSearch] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
@@ -52,6 +156,12 @@ export default function AlJahiz() {
   const [copied, setCopied] = useState(false);
 
   const isEn = subject === 'Islamic Education';
+
+  const lessonsList = isEn ? LESSONS_EN : LESSONS_AR;
+  const suggestions = useMemo(() => {
+    if (!search.trim() || !subject) return [];
+    return lessonsList.filter(l => l.toLowerCase().includes(search.toLowerCase())).slice(0, 8);
+  }, [search, subject, isEn]);
 
   // Check if we're in student/worksheet view mode
   const urlParams = new URLSearchParams(window.location.search);
@@ -95,7 +205,7 @@ export default function AlJahiz() {
   }
 
   async function generate() {
-    if (!grade || !subject || !topic.trim()) return alert('يرجى إكمال جميع الحقول');
+    if (!subject || !topic.trim()) return alert('يرجى إكمال جميع الحقول');
     setLoading(true); setGenerated(false); setAnswers({}); setFeedback({});
 
     const sys = isEn
@@ -103,20 +213,20 @@ export default function AlJahiz() {
       : 'أنت معلم خبير في الإمارات. اكتب بأسلوب احترافي باللغة العربية مع Markdown: # للعناوين، ** للغامق، - للقوائم، | للجداول.';
 
     const planP = isEn
-      ? `Create a complete lesson plan for "${subject}" Grade ${grade} on "${topic}". Include: # General Objective, ## Bloom's Taxonomy Outcomes (table), ## New Learning Steps, ## Assessment for Learning, ## Critical Thinking Questions, ## UAE Cultural Connection, ## Cross-curricular Links, ## Creative Closure, ## Project (if applicable), ## Exit Ticket, ## Homework.`
-      : `أنشئ خطة درس متكاملة لمادة "${subject}" الصف ${grade} عن "${topic}". اشمل: # الهدف العام, ## مخرجات التعلم حسب بلوم (جدول), ## التعلم الجديد, ## التقييم من أجل التعلم, ## أسئلة التفكير الناقد, ## الربط بالثقافة الإماراتية, ## الربط بالمواد الأخرى, ## الخاتمة المميزة, ## المشروع (إن وجد), ## تذكرة الخروج, ## الواجب المنزلي`;
+      ? `Create a complete lesson plan for "${subject}" on "${topic}". Include: # General Objective, ## Bloom's Taxonomy Outcomes (table), ## New Learning Steps, ## Assessment for Learning, ## Critical Thinking Questions, ## UAE Cultural Connection, ## Cross-curricular Links, ## Creative Closure, ## Project (if applicable), ## Exit Ticket, ## Homework.`
+      : `أنشئ خطة درس متكاملة لمادة "${subject}" عن "${topic}". اشمل: # الهدف العام, ## مخرجات التعلم حسب بلوم (جدول), ## التعلم الجديد, ## التقييم من أجل التعلم, ## أسئلة التفكير الناقد, ## الربط بالثقافة الإماراتية, ## الربط بالمواد الأخرى, ## الخاتمة المميزة, ## المشروع (إن وجد), ## تذكرة الخروج, ## الواجب المنزلي`;
 
     const wsP = isEn
-      ? `Create 5 questions for "${subject}" Grade ${grade} on "${topic}". JSON only: {"title":"...","questions":[{"id":1,"type":"mcq","question":"...","options":["A","B","C","D"],"correct":0},{"id":2,"type":"fill","question":"Complete: ___ is ...","correct":"answer"},{"id":3,"type":"truefalse","question":"...","correct":true},{"id":4,"type":"mcq","question":"...","options":["A","B","C","D"],"correct":2},{"id":5,"type":"open","question":"..."}]}`
-      : `أنشئ 5 أسئلة لمادة "${subject}" الصف ${grade} عن "${topic}". JSON فقط: {"title":"...","questions":[{"id":1,"type":"mcq","question":"...","options":["أ","ب","ج","د"],"correct":0},{"id":2,"type":"fill","question":"أكمل: ___ هو ...","correct":"إجابة"},{"id":3,"type":"truefalse","question":"...","correct":true},{"id":4,"type":"mcq","question":"...","options":["أ","ب","ج","د"],"correct":2},{"id":5,"type":"open","question":"..."}]}`;
+      ? `Create 5 questions for "${subject}" on "${topic}". JSON only: {"title":"...","questions":[{"id":1,"type":"mcq","question":"...","options":["A","B","C","D"],"correct":0},{"id":2,"type":"fill","question":"Complete: ___ is ...","correct":"answer"},{"id":3,"type":"truefalse","question":"...","correct":true},{"id":4,"type":"mcq","question":"...","options":["A","B","C","D"],"correct":2},{"id":5,"type":"open","question":"..."}]}`
+      : `أنشئ 5 أسئلة لمادة "${subject}" عن "${topic}". JSON فقط: {"title":"...","questions":[{"id":1,"type":"mcq","question":"...","options":["أ","ب","ج","د"],"correct":0},{"id":2,"type":"fill","question":"أكمل: ___ هو ...","correct":"إجابة"},{"id":3,"type":"truefalse","question":"...","correct":true},{"id":4,"type":"mcq","question":"...","options":["أ","ب","ج","د"],"correct":2},{"id":5,"type":"open","question":"..."}]}`;
 
     const assP = isEn
-      ? `Create a diverse assessment for "${subject}" Grade ${grade} on "${topic}" for all levels. Use markdown.`
-      : `أنشئ تقييماً متنوعاً لمادة "${subject}" الصف ${grade} عن "${topic}" لجميع المستويات. استخدم Markdown.`;
+      ? `Create a diverse assessment for "${subject}" on "${topic}" for all levels. Use markdown.`
+      : `أنشئ تقييماً متنوعاً لمادة "${subject}" عن "${topic}" لجميع المستويات. استخدم Markdown.`;
 
     const indP = isEn
-      ? `Create individual plans for "${subject}" Grade ${grade} on "${topic}" for: Beginner, Intermediate, Advanced, Language weakness, Learning difficulties, ADHD. Styles: Visual, Auditory, Kinesthetic. For each: individual + group activity. Use markdown.`
-      : `أنشئ خططاً فردية لمادة "${subject}" الصف ${grade} عن "${topic}" لكل: مبتدئ، متوسط، متميز، ضعف لغوي، صعوبات تعلم، فرط حركة. أنماط: بصري، سمعي، حركي. لكل فئة: نشاط فردي + جماعي. استخدم Markdown.`;
+      ? `Create individual plans for "${subject}" on "${topic}" for: Beginner, Intermediate, Advanced, Language weakness, Learning difficulties, ADHD. Styles: Visual, Auditory, Kinesthetic. For each: individual + group activity. Use markdown.`
+      : `أنشئ خططاً فردية لمادة "${subject}" عن "${topic}" لكل: مبتدئ، متوسط، متميز، ضعف لغوي، صعوبات تعلم، فرط حركة. أنماط: بصري، سمعي، حركي. لكل فئة: نشاط فردي + جماعي. استخدم Markdown.`;
 
     try {
       const [plan, worksheet, assessment, individual] = await Promise.all([
@@ -212,25 +322,43 @@ export default function AlJahiz() {
               بيانات الدرس
               <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(201,168,76,0.3),transparent)' }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-              {[
-                { label: 'الصف الدراسي', id: 'grade', val: grade, setter: setGrade, opts: ['', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'], labels: ['اختر الصف', ...['2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map(g => `الصف ${g}`)] },
-                { label: 'المادة الدراسية', id: 'subject', val: subject, setter: setSubject, opts: ['', 'اللغة العربية', 'التربية الإسلامية', 'Islamic Education'], labels: ['اختر المادة', 'اللغة العربية', 'التربية الإسلامية', 'Islamic Education'] }
-              ].map(f => (
-                <div key={f.id}>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8, opacity: 0.7 }}>{f.label}</label>
-                  <select value={f.val} onChange={e => f.setter(e.target.value)} style={{ width: '100%', padding: '13px 16px', border: '1.5px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, fontWeight: 500, color: '#1a1a2e', background: '#faf8f2', outline: 'none' }}>
-                    {f.opts.map((o, i) => <option key={o} value={o}>{f.labels[i]}</option>)}
-                  </select>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8, opacity: 0.7 }}>{isEn ? 'Subject' : 'المادة الدراسية'}</label>
+              <select value={subject} onChange={e => { setSubject(e.target.value); setSearch(''); setTopic(''); setGenerated(false); }} style={{ width: '100%', padding: '13px 16px', border: '1.5px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, fontWeight: 500, color: '#1a1a2e', background: '#faf8f2', outline: 'none' }}>
+                <option value="">اختر المادة</option>
+                <option>اللغة العربية</option>
+                <option>التربية الإسلامية</option>
+                <option>Islamic Education</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 20, position: 'relative' }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8, opacity: 0.7 }}>
+                {isEn ? 'Search for a Lesson' : 'ابحث عن درس'}
+              </label>
+              <input
+                value={search}
+                onChange={e => { setSearch(e.target.value); setTopic(e.target.value); setShowSuggestions(true); setGenerated(false); }}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                placeholder={!subject ? (isEn ? 'Choose a subject first...' : 'اختر المادة أولاً...') : (isEn ? 'Type lesson name...' : 'اكتب اسم الدرس...')}
+                disabled={!subject}
+                style={{ width: '100%', padding: '13px 16px', border: '1.5px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, color: '#1a1a2e', background: !subject ? '#f5f5f5' : '#faf8f2', outline: 'none' }}
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(26,26,46,0.15)', zIndex: 100, marginTop: 4, overflow: 'hidden', border: '1px solid #e8e4d9' }}>
+                  {suggestions.map((s, i) => (
+                    <div key={i} onClick={() => { setSearch(s); setTopic(s); setShowSuggestions(false); }}
+                      style={{ padding: '12px 16px', cursor: 'pointer', fontSize: 14, fontWeight: 500, borderBottom: i < suggestions.length - 1 ? '1px solid #f5f5f5' : 'none', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.target.style.background = '#faf8f2'}
+                      onMouseLeave={e => e.target.style.background = '#fff'}>
+                      🔍 {s}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8, opacity: 0.7 }}>موضوع الدرس</label>
-              <input value={topic} onChange={e => setTopic(e.target.value)} placeholder="اكتب موضوع الدرس هنا..." style={{ width: '100%', padding: '13px 16px', border: '1.5px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, color: '#1a1a2e', background: '#faf8f2', outline: 'none' }} />
-            </div>
-            <button onClick={generate} disabled={!grade || !subject || !topic.trim() || loading}
-              style={{ width: '100%', padding: 16, background: (!grade || !subject || !topic.trim() || loading) ? '#ccc' : 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', color: '#fff', border: 'none', borderRadius: 14, fontFamily: "'Tajawal',sans-serif", fontSize: 17, fontWeight: 800, cursor: (!grade || !subject || !topic.trim() || loading) ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
+            <button onClick={generate} disabled={!subject || !topic.trim() || loading}
+              style={{ width: '100%', padding: 16, background: (!subject || !topic.trim() || loading) ? '#ccc' : 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', color: '#fff', border: 'none', borderRadius: 14, fontFamily: "'Tajawal',sans-serif", fontSize: 17, fontWeight: 800, cursor: (!subject || !topic.trim() || loading) ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
               {loading ? '⏳ جاري الإنشاء...' : '⚡ أنشئ الحزمة الكاملة'}
             </button>
           </div>
