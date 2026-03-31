@@ -129,7 +129,7 @@ function markdownToHTML(md) {
     });
     return out + '</table>';
   });
- 
+
   html = html.replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
   html = html.split('\n\n').map(block => {
     if (block.match(/^<(h[1-4]|ul|ol|table|hr|blockquote)/)) return block;
@@ -188,7 +188,7 @@ export default function AlJahiz() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001'
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 3000,
         system,
         messages: [{ role: 'user', content: prompt }]
