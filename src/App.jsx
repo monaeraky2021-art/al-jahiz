@@ -621,7 +621,7 @@ function StudentView({ ws }) {
               </div>
             </div>
           )}
-
+ 
           <div style={{ textAlign: 'center', color: '#ccc', fontSize: 11, padding: '20px 0', letterSpacing: 1 }}>© Mona Eraky — دفتر المعلم 2026 | الجاهز ⚡</div>
         </div>
       </div>
