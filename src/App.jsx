@@ -1,490 +1,346 @@
 import { useState } from "react";
 
-const COLORS = {
-  grade2_4: {
-    primary: "#FF6B6B", secondary: "#FFD93D", accent: "#6BCB77",
-    bg: "#FFF9F0", text: "#2D2D2D"
-  },
-  grade5_8: {
-    primary: "#4D96FF", secondary: "#FF922B", accent: "#51CF66",
-    bg: "#F0F4FF", text: "#1A1A2E"
-  },
-  grade9_12: {
-    primary: "#2C3E6B", secondary: "#C0963C", accent: "#4A9B6F",
-    bg: "#F5F5F0", text: "#1A1A1A"
-  }
-};
-
-const SOUNDS = {
-  grade2_4: { rate: 0.85, pitch: 1.3 },
-  grade5_8: { rate: 0.9, pitch: 1.1 },
-  grade9_12: { rate: 0.95, pitch: 1.0 }
-};
-
-function getAgeGroup(grade) {
-  const g = parseInt(grade);
-  if (g <= 4) return "grade2_4";
-  if (g <= 8) return "grade5_8";
-  return "grade9_12";
-}
-
-function speak(text, ageGroup, setSpeaking) {
-  if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  const s = SOUNDS[ageGroup];
-  utterance.lang = "ar-SA";
-  utterance.rate = s.rate;
-  utterance.pitch = s.pitch;
-  utterance.onend = () => setSpeaking(false);
-  window.speechSynthesis.speak(utterance);
-}
-
-const SUBJECTS = ["اللغة العربية", "التربية الإسلامية", "Islamic Education"];
-const isEnglish = (subject) => subject === "Islamic Education";
-
-const TABS_AR = ["📋 خطة الدرس", "📝 ورقة العمل", "✅ التقييم", "🎯 الخطط الفردية"];
-const TABS_EN = ["📋 Lesson Plan", "📝 Worksheet", "✅ Assessment", "🎯 Individual Plans"];
-
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
+function markdownToHTML(md) {
+  if (!md) return '';
+  let html = md
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^\- (.+)$/gm, '<li>$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+
+  html = html.replace(/(\|.+\|\n?)+/g, function (table) {
+    const rows = table.trim().split('\n');
+    let out = '<table>';
+    rows.forEach((row, i) => {
+      if (row.match(/^\|[-| ]+\|$/)) return;
+      const cells = row.split('|').filter((_, j, a) => j > 0 && j < a.length - 1);
+      const tag = i === 0 ? 'th' : 'td';
+      out += '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+    });
+    return out + '</table>';
+  });
+
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
+  html = html.split('\n\n').map(block => {
+    if (block.match(/^<(h[1-4]|ul|ol|table|hr|blockquote)/)) return block;
+    if (block.trim() === '') return '';
+    return `<p>${block.replace(/\n/g, ' ')}</p>`;
+  }).join('');
+
+  return html;
+}
+
 export default function AlJahiz() {
-  const [grade, setGrade] = useState("");
-  const [subject, setSubject] = useState("");
-  const [topic, setTopic] = useState("");
-  const [activeTab, setActiveTab] = useState(0);
+  const [grade, setGrade] = useState('');
+  const [subject, setSubject] = useState('');
+  const [topic, setTopic] = useState('');
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
-  const [content, setContent] = useState({ plan: "", worksheet: null, assessment: "", individual: "" });
+  const [activeTab, setActiveTab] = useState(0);
+  const [stored, setStored] = useState({ plan: '', worksheet: null, assessment: '', individual: '' });
+  const [answers, setAnswers] = useState({});
+  const [feedback, setFeedback] = useState({});
   const [speaking, setSpeaking] = useState(false);
-  const [worksheetAnswers, setWorksheetAnswers] = useState({});
-  const [worksheetFeedback, setWorksheetFeedback] = useState({});
 
-  const ageGroup = grade ? getAgeGroup(grade) : "grade5_8";
-  const c = COLORS[ageGroup];
-  const lang = isEnglish(subject) ? "en" : "ar";
-  const dir = lang === "ar" ? "rtl" : "ltr";
-  const tabs = lang === "ar" ? TABS_AR : TABS_EN;
+  const isEn = subject === 'Islamic Education';
 
-  const callAPI = async (prompt, systemPrompt) => {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
+  async function callAPI(prompt, system) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: "claude-opus-4-5",
+        model: 'claude-opus-4-5',
         max_tokens: 1500,
-        system: systemPrompt,
-        messages: [{ role: "user", content: prompt }]
+        system,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
-    const data = await response.json();
-    return data.content?.[0]?.text || "";
-  };
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
+  }
 
-  const callAPIJSON = async (prompt, systemPrompt) => {
-    const text = await callAPI(prompt, systemPrompt);
-    try {
-      const clean = text.replace(/```json|```/g, "").trim();
-      return JSON.parse(clean);
-    } catch {
-      return null;
-    }
-  };
+  async function callJSON(prompt, system) {
+    const text = await callAPI(prompt, system + '\nأجب فقط بـ JSON صحيح بدون أي نص إضافي أو backticks.');
+    try { return JSON.parse(text.replace(/```json|```/g, '').trim()); }
+    catch { return null; }
+  }
 
-  const handleGenerate = async () => {
-    if (!grade || !subject || !topic.trim()) return;
-    setLoading(true);
-    setGenerated(false);
-    setWorksheetAnswers({});
-    setWorksheetFeedback({});
+  async function generate() {
+    if (!grade || !subject || !topic.trim()) return alert('يرجى إكمال جميع الحقول');
+    setLoading(true); setGenerated(false); setAnswers({}); setFeedback({});
 
-    const isAr = lang === "ar";
-    const planSystem = isAr
-      ? "أنت معلم محترف متخصص في التربية الإسلامية واللغة العربية في الإمارات. اكتب بأسلوب احترافي وعملي."
-      : "You are a professional teacher specializing in Islamic Education in UAE schools. Write professionally.";
+    const sys = isEn
+      ? 'You are an expert UAE teacher. Write professionally in English using Markdown: # for headings, ** for bold, - for lists, | for tables.'
+      : 'أنت معلم خبير في الإمارات. اكتب بأسلوب احترافي باللغة العربية مع Markdown: # للعناوين، ** للغامق، - للقوائم، | للجداول.';
 
-    const planPrompt = isAr
-      ? `أنشئ خطة درس متكاملة لمادة "${subject}" الصف ${grade} عن موضوع "${topic}".
-تشمل:
-1. الهدف العام
-2. مخرجات التعلم حسب تاكسونومي بلوم
-3. التعلم الجديد (خطوات الشرح)
-4. التقييم من أجل التعلم
-5. أسئلة التفكير الناقد وحل المشكلات
-6. الربط بالثقافة الإماراتية
-7. الربط بالمواد الأخرى (إن وجد)
-8. الخاتمة المميزة
-9. المشروع (إن استدعى الدرس)
-10. تذكرة الخروج
-11. الواجب المنزلي`
-      : `Create a complete lesson plan for "${subject}" Grade ${grade} on "${topic}".
-Include: General Objective, Bloom's Taxonomy Outcomes, New Learning Steps, Assessment for Learning, Critical Thinking Questions, UAE Cultural Connection, Cross-curricular Links, Creative Closure, Project (if applicable), Exit Ticket, Homework.`;
+    const planP = isEn
+      ? `Create a complete lesson plan for "${subject}" Grade ${grade} on "${topic}". Include: # General Objective, ## Bloom's Taxonomy Outcomes (table), ## New Learning Steps, ## Assessment for Learning, ## Critical Thinking Questions, ## UAE Cultural Connection, ## Cross-curricular Links, ## Creative Closure, ## Project (if applicable), ## Exit Ticket, ## Homework.`
+      : `أنشئ خطة درس متكاملة لمادة "${subject}" الصف ${grade} عن "${topic}". اشمل: # الهدف العام, ## مخرجات التعلم حسب بلوم (جدول), ## التعلم الجديد, ## التقييم من أجل التعلم, ## أسئلة التفكير الناقد, ## الربط بالثقافة الإماراتية, ## الربط بالمواد الأخرى, ## الخاتمة المميزة, ## المشروع (إن وجد), ## تذكرة الخروج, ## الواجب المنزلي`;
 
-    const worksheetSystem = isAr
-      ? "أنت معلم خبير. أجب فقط بـ JSON صحيح بدون أي نص إضافي أو backticks."
-      : "You are an expert teacher. Respond ONLY with valid JSON, no extra text or backticks.";
+    const wsP = isEn
+      ? `Create 5 questions for "${subject}" Grade ${grade} on "${topic}". JSON only: {"title":"...","questions":[{"id":1,"type":"mcq","question":"...","options":["A","B","C","D"],"correct":0},{"id":2,"type":"fill","question":"Complete: ___ is ...","correct":"answer"},{"id":3,"type":"truefalse","question":"...","correct":true},{"id":4,"type":"mcq","question":"...","options":["A","B","C","D"],"correct":2},{"id":5,"type":"open","question":"..."}]}`
+      : `أنشئ 5 أسئلة لمادة "${subject}" الصف ${grade} عن "${topic}". JSON فقط: {"title":"...","questions":[{"id":1,"type":"mcq","question":"...","options":["أ","ب","ج","د"],"correct":0},{"id":2,"type":"fill","question":"أكمل: ___ هو ...","correct":"إجابة"},{"id":3,"type":"truefalse","question":"...","correct":true},{"id":4,"type":"mcq","question":"...","options":["أ","ب","ج","د"],"correct":2},{"id":5,"type":"open","question":"..."}]}`;
 
-    const worksheetPrompt = isAr
-      ? `أنشئ ورقة عمل تفاعلية لمادة "${subject}" الصف ${grade} عن "${topic}".
-أرجع JSON بهذا الشكل بالضبط:
-{"title":"عنوان ورقة العمل","questions":[
-{"id":1,"type":"mcq","question":"نص السؤال","options":["أ","ب","ج","د"],"correct":0},
-{"id":2,"type":"fill","question":"أكمل الفراغ: ___ هو ...","correct":"الإجابة"},
-{"id":3,"type":"truefalse","question":"نص العبارة","correct":true},
-{"id":4,"type":"mcq","question":"نص السؤال","options":["أ","ب","ج","د"],"correct":2},
-{"id":5,"type":"open","question":"سؤال مفتوح للتفكير"}
-]}`
-      : `Create an interactive worksheet for "${subject}" Grade ${grade} on "${topic}".
-Return JSON exactly:
-{"title":"Worksheet Title","questions":[
-{"id":1,"type":"mcq","question":"Question","options":["A","B","C","D"],"correct":0},
-{"id":2,"type":"fill","question":"Complete: ___ is ...","correct":"answer"},
-{"id":3,"type":"truefalse","question":"Statement","correct":true},
-{"id":4,"type":"mcq","question":"Question","options":["A","B","C","D"],"correct":2},
-{"id":5,"type":"open","question":"Open-ended question"}
-]}`;
+    const assP = isEn
+      ? `Create a diverse assessment for "${subject}" Grade ${grade} on "${topic}" for all levels. Use markdown.`
+      : `أنشئ تقييماً متنوعاً لمادة "${subject}" الصف ${grade} عن "${topic}" لجميع المستويات. استخدم Markdown.`;
 
-    const assessPrompt = isAr
-      ? `أنشئ تقييماً متنوعاً لمادة "${subject}" الصف ${grade} عن "${topic}" يناسب جميع المستويات (مبتدئ، متوسط، متميز). يشمل أسئلة موضوعية ومفتوحة ومهام أداء.`
-      : `Create a diverse assessment for "${subject}" Grade ${grade} on "${topic}" for all levels. Include objective, open, and performance questions.`;
-
-    const individualPrompt = isAr
-      ? `أنشئ خططاً فردية لمادة "${subject}" الصف ${grade} عن "${topic}" لكل من:
-المستويات: مبتدئ، متوسط، متميز، متوسط مع ضعف لغوي، صعوبات تعلم، فرط حركة
-أنماط التعلم: بصري، سمعي، حركي
-لكل فئة: نشاط فردي + نشاط جماعي مناسب.`
-      : `Create individual plans for "${subject}" Grade ${grade} on "${topic}" for:
-Levels: Beginner, Intermediate, Advanced, Intermediate with language weakness, Learning difficulties, ADHD
-Styles: Visual, Auditory, Kinesthetic. For each: individual activity + group activity.`;
+    const indP = isEn
+      ? `Create individual plans for "${subject}" Grade ${grade} on "${topic}" for: Beginner, Intermediate, Advanced, Language weakness, Learning difficulties, ADHD. Styles: Visual, Auditory, Kinesthetic. For each: individual + group activity. Use markdown.`
+      : `أنشئ خططاً فردية لمادة "${subject}" الصف ${grade} عن "${topic}" لكل: مبتدئ، متوسط، متميز، ضعف لغوي، صعوبات تعلم، فرط حركة. أنماط: بصري، سمعي، حركي. لكل فئة: نشاط فردي + جماعي. استخدم Markdown.`;
 
     try {
-      const [plan, worksheetData, assessment, individual] = await Promise.all([
-        callAPI(planPrompt, planSystem),
-        callAPIJSON(worksheetPrompt, worksheetSystem),
-        callAPI(assessPrompt, planSystem),
-        callAPI(individualPrompt, planSystem),
+      const [plan, worksheet, assessment, individual] = await Promise.all([
+        callAPI(planP, sys),
+        callJSON(wsP, sys),
+        callAPI(assP, sys),
+        callAPI(indP, sys),
       ]);
-      setContent({ plan, worksheet: worksheetData, assessment, individual });
-      setGenerated(true);
-      setActiveTab(0);
+      setStored({ plan, worksheet, assessment, individual });
+      setGenerated(true); setActiveTab(0);
     } catch (e) {
-      console.error(e);
-      alert(isAr ? "حدث خطأ، تحققي من الـ API key" : "Error occurred, check API key");
+      alert('حدث خطأ: ' + e.message);
     }
     setLoading(false);
-  };
+  }
 
-  const handleSpeak = (text) => {
-    if (speaking) {
-      window.speechSynthesis.cancel();
-      setSpeaking(false);
-    } else {
-      setSpeaking(true);
-      speak(text, ageGroup, setSpeaking);
-    }
-  };
+  function toggleSpeak(text) {
+    if (!window.speechSynthesis) return;
+    if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ar-SA'; u.rate = 0.9; u.pitch = 1;
+    u.onend = () => setSpeaking(false);
+    window.speechSynthesis.speak(u);
+    setSpeaking(true);
+  }
 
-  const handleAnswer = (qId, answer, correct, type) => {
-    setWorksheetAnswers(prev => ({ ...prev, [qId]: answer }));
-    if (type !== "open") {
-      let isCorrect;
-      if (type === "truefalse") isCorrect = answer === correct;
-      else if (type === "mcq") isCorrect = answer === correct;
-      else if (type === "fill") isCorrect = answer.trim().toLowerCase() === String(correct).trim().toLowerCase();
-      setWorksheetFeedback(prev => ({ ...prev, [qId]: isCorrect }));
-    }
-  };
+  function answerMCQ(id, ans, correct) {
+    setAnswers(p => ({ ...p, [id]: ans }));
+    setFeedback(p => ({ ...p, [id]: ans === correct }));
+  }
+  function answerTF(id, ans, correct) {
+    setAnswers(p => ({ ...p, [id]: ans }));
+    setFeedback(p => ({ ...p, [id]: ans === correct }));
+  }
+  function answerFill(id, val, correct) {
+    setAnswers(p => ({ ...p, [id]: val }));
+    setFeedback(p => ({ ...p, [id]: val.trim().toLowerCase() === correct.trim().toLowerCase() }));
+  }
+
+  const tabs = ['📋 خطة الدرس', '📝 ورقة العمل', '✅ التقييم', '🎯 الخطط الفردية'];
+
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Tajawal',sans-serif;background:#faf8f2;color:#1a1a2e;direction:rtl}
+    .md-content{line-height:1.9;font-size:15px;color:#333}
+    .md-content h1{font-size:21px;font-weight:900;color:#1a1a2e;margin:24px 0 12px;padding-bottom:8px;border-bottom:2px solid #c9a84c}
+    .md-content h2{font-size:17px;font-weight:800;color:#1b4965;margin:20px 0 10px}
+    .md-content h3{font-size:15px;font-weight:700;color:#2d6a4f;margin:16px 0 8px}
+    .md-content h4{font-size:14px;font-weight:700;color:#c9a84c;margin:12px 0 6px}
+    .md-content p{margin-bottom:10px}
+    .md-content strong{font-weight:800;color:#1a1a2e}
+    .md-content ul{padding-right:20px;margin-bottom:12px}
+    .md-content li{margin-bottom:6px;line-height:1.7}
+    .md-content table{width:100%;border-collapse:collapse;margin:16px 0;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06)}
+    .md-content th{background:#1a1a2e;color:#fff;padding:12px 16px;font-size:13px;font-weight:700;text-align:right}
+    .md-content td{padding:11px 16px;border-bottom:1px solid #f0ece0;font-size:14px}
+    .md-content tr:nth-child(even) td{background:#faf8f2}
+    .md-content tr:last-child td{border-bottom:none}
+    .md-content hr{border:none;height:2px;background:linear-gradient(90deg,#c9a84c,transparent);margin:20px 0}
+    .md-content blockquote{border-right:4px solid #c9a84c;background:rgba(201,168,76,0.06);padding:12px 16px;border-radius:0 8px 8px 0;margin:12px 0}
+  `;
 
   return (
-    <div dir={dir} style={{
-      minHeight: "100vh",
-      background: c.bg,
-      fontFamily: "'Tajawal', 'Cairo', sans-serif",
-      color: c.text,
-    }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Cairo:wght@400;600;700&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        .card { background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 16px; }
-        .btn { cursor: pointer; border: none; border-radius: 12px; font-family: inherit; font-weight: 700; transition: all 0.2s; }
-        .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
-        select, input, textarea { font-family: inherit; border-radius: 10px; border: 2px solid #E0E0E0; padding: 12px 16px; font-size: 15px; width: 100%; outline: none; transition: border 0.2s; background: white; color: inherit; }
-        select:focus, input:focus, textarea:focus { border-color: ${c.primary}; }
-        .tab-btn { padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; border: 2px solid transparent; cursor: pointer; transition: all 0.2s; font-family: inherit; }
-        .tab-btn.active { background: ${c.primary}; color: white; }
-        .tab-btn:not(.active) { background: white; color: ${c.text}; border-color: #E0E0E0; }
-        .tab-btn:not(.active):hover { border-color: ${c.primary}; color: ${c.primary}; }
-        .content-box { white-space: pre-wrap; line-height: 2; font-size: 15px; }
-        .q-card { border-radius: 14px; padding: 18px; margin-bottom: 14px; border: 2px solid #F0F0F0; background: white; }
-        .q-card.correct { border-color: #51CF66; background: #F0FFF4; }
-        .q-card.wrong { border-color: #FF6B6B; background: #FFF0F0; }
-        .opt-btn { display: block; width: 100%; text-align: ${dir === "rtl" ? "right" : "left"}; padding: 10px 16px; margin-top: 8px; border-radius: 10px; border: 2px solid #E0E0E0; background: white; cursor: pointer; font-family: inherit; font-size: 14px; transition: all 0.15s; }
-        .opt-btn:hover:not(:disabled) { border-color: ${c.primary}; background: ${c.bg}; }
-        .opt-btn.selected-correct { background: #51CF66 !important; color: white !important; border-color: #51CF66 !important; }
-        .opt-btn.selected-wrong { background: #FF6B6B !important; color: white !important; border-color: #FF6B6B !important; }
-        .opt-btn:disabled { cursor: default; }
-        .tf-btn { padding: 10px 28px; border-radius: 10px; border: 2px solid #E0E0E0; background: white; cursor: pointer; font-family: inherit; font-size: 15px; font-weight: 600; transition: all 0.15s; margin: 4px; }
-        .shimmer { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px; height: 18px; margin-bottom: 10px; }
-        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-        .pulse { animation: pulse 1.5s ease-in-out infinite; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-inline-end: 6px; margin-bottom: 6px; }
-        .section-title { font-size: 17px; font-weight: 800; color: ${c.primary}; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid ${c.primary}20; }
-        .watermark { text-align: center; color: #BBBBBB; font-size: 12px; padding: 20px; }
-      `}</style>
+    <>
+      <style>{css}</style>
+      <div style={{ minHeight: '100vh', background: '#faf8f2', fontFamily: "'Tajawal', sans-serif", direction: 'rtl' }}>
 
-      {/* Header */}
-      <div style={{ background: c.primary, padding: "20px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ color: "white", fontSize: 28, fontWeight: 800 }}>الجاهز ⚡</div>
-          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 2 }}>
-            دفتر المعلم | حزمة الدرس الكاملة في ثوانٍ
-          </div>
-        </div>
-        <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 11, textAlign: "center" }}>
-          <div>© Mona Eraky</div>
-          <div>دفتر المعلم</div>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: 800, margin: "0 auto", padding: "20px 16px" }}>
-
-        {/* Input Card */}
-        <div className="card">
-          <div className="section-title">بيانات الدرس</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        {/* HEADER */}
+        <div style={{ background: 'linear-gradient(135deg,#1a1a2e 0%,#2d2d5e 60%,#1b4965 100%)', padding: '28px 32px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: -40, left: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(201,168,76,0.08)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
             <div>
-              <label style={{ display: "block", fontWeight: 700, marginBottom: 6, fontSize: 14 }}>الصف الدراسي</label>
-              <select value={grade} onChange={e => { setGrade(e.target.value); setSubject(""); setGenerated(false); }}>
-                <option value="">اختر الصف</option>
-                {["2","3","4","5","6","7","8","9","10","11","12"].map(g => (
-                  <option key={g} value={g}>الصف {g}</option>
-                ))}
-              </select>
+              <div style={{ fontSize: 32, fontWeight: 900, color: '#fff' }}>الجاهز <span style={{ color: '#c9a84c' }}>⚡</span></div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4, letterSpacing: 1 }}>حزمة الدرس الكاملة في ثوانٍ</div>
             </div>
-            <div>
-              <label style={{ display: "block", fontWeight: 700, marginBottom: 6, fontSize: 14 }}>المادة</label>
-              <select value={subject} onChange={e => { setSubject(e.target.value); setGenerated(false); }} disabled={!grade}>
-                <option value="">اختر المادة</option>
-                {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
+            <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'left', lineHeight: 1.6 }}>© Mona Eraky<br />دفتر المعلم</div>
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontWeight: 700, marginBottom: 6, fontSize: 14 }}>موضوع الدرس</label>
-            <input
-              value={topic}
-              onChange={e => { setTopic(e.target.value); setGenerated(false); }}
-              placeholder={isEnglish(subject) ? "Type your lesson topic here..." : "اكتب موضوع الدرس هنا..."}
-              dir={dir}
-            />
-          </div>
-          <button
-            className="btn"
-            onClick={handleGenerate}
-            disabled={!grade || !subject || !topic.trim() || loading}
-            style={{
-              width: "100%", padding: "14px", fontSize: 16,
-              background: (!grade || !subject || !topic.trim() || loading) ? "#CCC" : c.primary,
-              color: "white",
-              cursor: (!grade || !subject || !topic.trim() || loading) ? "not-allowed" : "pointer"
-            }}
-          >
-            {loading
-              ? <span className="pulse">⏳ جاري الإنشاء...</span>
-              : "⚡ أنشئ الحزمة الكاملة"
-            }
-          </button>
         </div>
+        <div style={{ height: 3, background: 'linear-gradient(90deg,#c9a84c,#f0d080,#c9a84c)' }} />
 
-        {/* Loading */}
-        {loading && (
-          <div className="card">
-            <div style={{ textAlign: "center", marginBottom: 16, fontWeight: 700, color: c.primary }}>
-              🔄 جاري إنشاء الحزمة كاملة...
+        <div style={{ maxWidth: 860, margin: '0 auto', padding: '28px 20px' }}>
+
+          {/* INPUT CARD */}
+          <div style={{ background: '#fff', borderRadius: 20, padding: 28, boxShadow: '0 8px 32px rgba(26,26,46,0.10)', marginBottom: 24, border: '1px solid rgba(201,168,76,0.15)', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: 0, right: 0, width: 4, height: '100%', background: 'linear-gradient(180deg,#c9a84c,#f0d080)' }} />
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#c9a84c', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+              بيانات الدرس
+              <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,rgba(201,168,76,0.3),transparent)' }} />
             </div>
-            {[80, 90, 70, 85, 75].map((w, i) => (
-              <div key={i} className="shimmer" style={{ width: `${w}%` }} />
-            ))}
-          </div>
-        )}
-
-        {/* Tabs + Content */}
-        {generated && !loading && (
-          <>
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-              {tabs.map((tab, i) => (
-                <button key={i} className={`tab-btn ${activeTab === i ? "active" : ""}`} onClick={() => setActiveTab(i)}>
-                  {tab}
-                </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              {[
+                { label: 'الصف الدراسي', id: 'grade', val: grade, setter: setGrade, opts: ['', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'], labels: ['اختر الصف', ...['2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map(g => `الصف ${g}`)] },
+                { label: 'المادة الدراسية', id: 'subject', val: subject, setter: setSubject, opts: ['', 'اللغة العربية', 'التربية الإسلامية', 'Islamic Education'], labels: ['اختر المادة', 'اللغة العربية', 'التربية الإسلامية', 'Islamic Education'] }
+              ].map(f => (
+                <div key={f.id}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8, opacity: 0.7 }}>{f.label}</label>
+                  <select value={f.val} onChange={e => f.setter(e.target.value)} style={{ width: '100%', padding: '13px 16px', border: '1.5px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, fontWeight: 500, color: '#1a1a2e', background: '#faf8f2', outline: 'none' }}>
+                    {f.opts.map((o, i) => <option key={o} value={o}>{f.labels[i]}</option>)}
+                  </select>
+                </div>
               ))}
             </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8, opacity: 0.7 }}>موضوع الدرس</label>
+              <input value={topic} onChange={e => setTopic(e.target.value)} placeholder="اكتب موضوع الدرس هنا..." style={{ width: '100%', padding: '13px 16px', border: '1.5px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, color: '#1a1a2e', background: '#faf8f2', outline: 'none' }} />
+            </div>
+            <button onClick={generate} disabled={!grade || !subject || !topic.trim() || loading}
+              style={{ width: '100%', padding: 16, background: (!grade || !subject || !topic.trim() || loading) ? '#ccc' : 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', color: '#fff', border: 'none', borderRadius: 14, fontFamily: "'Tajawal',sans-serif", fontSize: 17, fontWeight: 800, cursor: (!grade || !subject || !topic.trim() || loading) ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
+              {loading ? '⏳ جاري الإنشاء...' : '⚡ أنشئ الحزمة الكاملة'}
+            </button>
+          </div>
 
-            {/* Tab 1: Lesson Plan */}
-            {activeTab === 0 && (
-              <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <div className="section-title" style={{ marginBottom: 0 }}>📋 خطة الدرس</div>
-                  <button className="btn" onClick={() => handleSpeak(content.plan)}
-                    style={{ padding: "8px 16px", background: speaking ? "#FF6B6B" : c.secondary, color: "white", fontSize: 13 }}>
-                    {speaking ? "⏹ إيقاف" : "🔊 استمع"}
+          {/* LOADING */}
+          {loading && (
+            <div style={{ background: '#fff', borderRadius: 20, padding: 32, boxShadow: '0 8px 32px rgba(26,26,46,0.10)', textAlign: 'center' }}>
+              <div style={{ color: '#c9a84c', fontWeight: 700, fontSize: 15, marginBottom: 20 }}>🔄 جاري إنشاء حزمتك التعليمية...</div>
+              {[90, 75, 85, 60, 80].map((w, i) => (
+                <div key={i} style={{ height: 14, borderRadius: 8, marginBottom: 10, width: `${w}%`, background: 'linear-gradient(90deg,#f0ece0 25%,#e8e4d4 50%,#f0ece0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+              ))}
+              <style>{`@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
+            </div>
+          )}
+
+          {/* OUTPUT */}
+          {generated && !loading && (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+                {tabs.map((tab, i) => (
+                  <button key={i} onClick={() => setActiveTab(i)}
+                    style={{ padding: '10px 20px', borderRadius: 50, fontFamily: "'Tajawal',sans-serif", fontSize: 14, fontWeight: 700, border: activeTab === i ? 'none' : '2px solid #e8e4d9', background: activeTab === i ? 'linear-gradient(135deg,#1a1a2e,#2d2d5e)' : '#fff', color: activeTab === i ? '#fff' : '#888', cursor: 'pointer', boxShadow: activeTab === i ? '0 4px 20px rgba(26,26,46,0.25)' : 'none' }}>
+                    {tab}
                   </button>
-                </div>
-                <div className="content-box">{content.plan}</div>
+                ))}
               </div>
-            )}
 
-            {/* Tab 2: Worksheet */}
-            {activeTab === 1 && (
-              <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <div className="section-title" style={{ marginBottom: 0 }}>
-                    {content.worksheet?.title || "📝 ورقة العمل التفاعلية"}
-                  </div>
-                  <button className="btn" onClick={() => handleSpeak(content.worksheet?.questions?.map(q => q.question).join(". ") || "")}
-                    style={{ padding: "8px 16px", background: speaking ? "#FF6B6B" : c.secondary, color: "white", fontSize: 13 }}>
-                    {speaking ? "⏹ إيقاف" : "🔊 استمع"}
-                  </button>
+              <div style={{ background: '#fff', borderRadius: 20, padding: 28, boxShadow: '0 8px 32px rgba(26,26,46,0.10)', border: '1px solid rgba(201,168,76,0.12)' }}>
+
+                {/* TAB HEADER */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, paddingBottom: 16, borderBottom: '2px solid #faf8f2' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#1a1a2e' }}>{tabs[activeTab]}</div>
+                  {activeTab !== 1 && (
+                    <button onClick={() => toggleSpeak([stored.plan, '', stored.assessment, stored.individual][activeTab])}
+                      style={{ padding: '8px 18px', borderRadius: 50, border: 'none', background: speaking ? '#c1440e' : '#faf8f2', color: speaking ? '#fff' : '#1a1a2e', fontFamily: "'Tajawal',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                      {speaking ? '⏹ إيقاف' : '🔊 استمع'}
+                    </button>
+                  )}
                 </div>
 
-                {content.worksheet?.questions?.map((q, idx) => {
-                  const fb = worksheetFeedback[q.id];
-                  const hasAnswer = worksheetAnswers[q.id] !== undefined;
-                  return (
-                    <div key={q.id} className={`q-card${hasAnswer && fb === true ? " correct" : hasAnswer && fb === false ? " wrong" : ""}`}>
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                        <span style={{
-                          background: c.primary, color: "white", borderRadius: "50%",
-                          width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: 13, fontWeight: 700, flexShrink: 0
-                        }}>{idx + 1}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 10, lineHeight: 1.7 }}>{q.question}</div>
+                {/* TAB 0: PLAN */}
+                {activeTab === 0 && <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownToHTML(stored.plan) }} />}
 
-                          {q.type === "mcq" && q.options.map((opt, i) => {
-                            const isSelected = worksheetAnswers[q.id] === i;
-                            let cls = "opt-btn";
-                            if (isSelected && fb === true) cls += " selected-correct";
-                            else if (isSelected && fb === false) cls += " selected-wrong";
-                            return (
-                              <button key={i} className={cls}
-                                onClick={() => handleAnswer(q.id, i, q.correct, "mcq")}
-                                disabled={hasAnswer}>{opt}</button>
-                            );
-                          })}
+                {/* TAB 1: WORKSHEET */}
+                {activeTab === 1 && stored.worksheet && (
+                  <>
+                    {stored.worksheet.questions?.map((q, i) => {
+                      const fb = feedback[q.id];
+                      const hasAns = answers[q.id] !== undefined;
+                      const borderColor = hasAns ? (fb === true ? '#52b788' : fb === false ? '#e76f51' : '#f0ece0') : '#f0ece0';
+                      const bgColor = hasAns ? (fb === true ? '#f0fff8' : fb === false ? '#fff5f0' : '#fff') : '#fff';
+                      return (
+                        <div key={q.id} style={{ marginBottom: 14, borderRadius: 14, padding: 20, border: `2px solid ${borderColor}`, background: bgColor, transition: 'all 0.3s' }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+                            <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', color: '#fff', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</div>
+                            <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.7, flex: 1 }}>{q.question}</div>
+                          </div>
 
-                          {q.type === "truefalse" && (
-                            <div>
-                              {[true, false].map(val => {
-                                const isSelected = worksheetAnswers[q.id] === val;
-                                let bg = "white", col = c.text, border = "#E0E0E0";
-                                if (isSelected && fb === true) { bg = "#51CF66"; col = "white"; border = "#51CF66"; }
-                                if (isSelected && fb === false) { bg = "#FF6B6B"; col = "white"; border = "#FF6B6B"; }
-                                return (
-                                  <button key={String(val)} className="tf-btn"
-                                    style={{ background: bg, color: col, borderColor: border }}
-                                    onClick={() => handleAnswer(q.id, val, q.correct, "truefalse")}
-                                    disabled={hasAnswer}>
-                                    {val ? "✓ صح" : "✗ خطأ"}
-                                  </button>
-                                );
+                          {q.type === 'mcq' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                              {q.options.map((o, idx) => {
+                                const isSel = answers[q.id] === idx;
+                                let bg = '#faf8f2', col = '#1a1a2e', border = '#e8e4d9';
+                                if (isSel && fb === true) { bg = '#52b788'; col = '#fff'; border = '#52b788'; }
+                                if (isSel && fb === false) { bg = '#e76f51'; col = '#fff'; border = '#e76f51'; }
+                                return <button key={idx} disabled={hasAns} onClick={() => answerMCQ(q.id, idx, q.correct)} style={{ padding: '10px 14px', borderRadius: 10, border: `2px solid ${border}`, background: bg, color: col, cursor: hasAns ? 'default' : 'pointer', fontFamily: "'Tajawal',sans-serif", fontSize: 14, fontWeight: 500, textAlign: 'right' }}>{o}</button>;
                               })}
                             </div>
                           )}
 
-                          {q.type === "fill" && (
-                            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                              <input
-                                placeholder="اكتب إجابتك..."
-                                value={worksheetAnswers[q.id] || ""}
-                                onChange={e => setWorksheetAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
-                                onKeyDown={e => e.key === "Enter" && !hasAnswer && handleAnswer(q.id, worksheetAnswers[q.id] || "", q.correct, "fill")}
-                                disabled={hasAnswer}
-                                style={{ flex: 1 }}
-                              />
-                              {!hasAnswer && (
-                                <button className="btn" onClick={() => handleAnswer(q.id, worksheetAnswers[q.id] || "", q.correct, "fill")}
-                                  style={{ padding: "10px 16px", background: c.primary, color: "white", fontSize: 13, whiteSpace: "nowrap" }}>
-                                  تحقق
-                                </button>
-                              )}
+                          {q.type === 'truefalse' && (
+                            <div style={{ display: 'flex', gap: 10 }}>
+                              {[true, false].map(v => {
+                                const isSel = answers[q.id] === v;
+                                let bg = '#faf8f2', col = '#1a1a2e', border = '#e8e4d9';
+                                if (isSel && fb === true) { bg = '#52b788'; col = '#fff'; border = '#52b788'; }
+                                if (isSel && fb === false) { bg = '#e76f51'; col = '#fff'; border = '#e76f51'; }
+                                return <button key={String(v)} disabled={hasAns} onClick={() => answerTF(q.id, v, q.correct)} style={{ flex: 1, padding: 12, borderRadius: 10, border: `2px solid ${border}`, background: bg, color: col, cursor: hasAns ? 'default' : 'pointer', fontFamily: "'Tajawal',sans-serif", fontSize: 15, fontWeight: 700 }}>{v ? '✓ صح' : '✗ خطأ'}</button>;
+                              })}
                             </div>
                           )}
 
-                          {q.type === "open" && (
-                            <textarea rows={3} placeholder="اكتب إجابتك هنا..."
-                              value={worksheetAnswers[q.id] || ""}
-                              onChange={e => setWorksheetAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
-                              style={{ marginTop: 8, resize: "vertical" }} />
+                          {q.type === 'fill' && (
+                            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                              <input id={`fill_${q.id}`} disabled={hasAns} placeholder="اكتب إجابتك..." style={{ flex: 1, padding: '10px 14px', border: '1.5px solid #e8e4d9', borderRadius: 10, fontFamily: "'Tajawal',sans-serif", fontSize: 14, background: '#faf8f2', outline: 'none' }} />
+                              {!hasAns && <button onClick={() => { const v = document.getElementById(`fill_${q.id}`)?.value || ''; answerFill(q.id, v, q.correct); }} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#1a1a2e', color: '#fff', fontFamily: "'Tajawal',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>تحقق</button>}
+                            </div>
                           )}
 
-                          {hasAnswer && fb !== undefined && (
-                            <div style={{ marginTop: 8, fontWeight: 700, color: fb ? "#51CF66" : "#FF6B6B" }}>
-                              {fb ? "✅ أحسنت!" : `❌ الإجابة الصحيحة: ${q.type === "truefalse" ? (q.correct ? "صح" : "خطأ") : q.type === "mcq" ? q.options[q.correct] : q.correct}`}
+                          {q.type === 'open' && (
+                            <textarea rows={3} placeholder="اكتب إجابتك هنا..." style={{ width: '100%', padding: 12, border: '1.5px solid #e8e4d9', borderRadius: 10, fontFamily: "'Tajawal',sans-serif", fontSize: 14, resize: 'vertical', background: '#faf8f2', marginTop: 4, outline: 'none' }} />
+                          )}
+
+                          {hasAns && fb !== undefined && (
+                            <div style={{ marginTop: 10, fontWeight: 700, fontSize: 14, color: fb ? '#2d6a4f' : '#c1440e' }}>
+                              {fb ? '✅ أحسنت!' : `❌ الإجابة: ${q.type === 'truefalse' ? (q.correct ? 'صح' : 'خطأ') : q.type === 'mcq' ? q.options[q.correct] : q.correct}`}
                             </div>
                           )}
                         </div>
+                      );
+                    })}
+                    {Object.keys(feedback).length > 0 && (
+                      <div style={{ textAlign: 'center', padding: 20, background: 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', borderRadius: 14, color: '#fff' }}>
+                        <div style={{ fontSize: 36, fontWeight: 900, color: '#c9a84c' }}>{Object.values(feedback).filter(Boolean).length}/{Object.keys(feedback).length}</div>
+                        <div style={{ fontSize: 13, opacity: 0.7, marginTop: 4 }}>إجاباتك الصحيحة</div>
                       </div>
-                    </div>
-                  );
-                })}
-
-                {Object.keys(worksheetFeedback).length > 0 && (
-                  <div style={{ textAlign: "center", padding: 16, background: c.bg, borderRadius: 12 }}>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: c.primary }}>
-                      {Object.values(worksheetFeedback).filter(Boolean).length} / {Object.keys(worksheetFeedback).length}
-                    </div>
-                    <div style={{ fontSize: 13, color: "#888", marginTop: 4 }}>إجاباتك الصحيحة</div>
-                  </div>
+                    )}
+                  </>
                 )}
-              </div>
-            )}
 
-            {/* Tab 3: Assessment */}
-            {activeTab === 2 && (
-              <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <div className="section-title" style={{ marginBottom: 0 }}>✅ التقييم</div>
-                  <button className="btn" onClick={() => handleSpeak(content.assessment)}
-                    style={{ padding: "8px 16px", background: speaking ? "#FF6B6B" : c.secondary, color: "white", fontSize: 13 }}>
-                    {speaking ? "⏹ إيقاف" : "🔊 استمع"}
-                  </button>
-                </div>
-                <div className="content-box">{content.assessment}</div>
-              </div>
-            )}
+                {/* TAB 2: ASSESSMENT */}
+                {activeTab === 2 && <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownToHTML(stored.assessment) }} />}
 
-            {/* Tab 4: Individual Plans */}
-            {activeTab === 3 && (
-              <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                  <div className="section-title" style={{ marginBottom: 0 }}>🎯 الخطط الفردية</div>
-                  <button className="btn" onClick={() => handleSpeak(content.individual)}
-                    style={{ padding: "8px 16px", background: speaking ? "#FF6B6B" : c.secondary, color: "white", fontSize: 13 }}>
-                    {speaking ? "⏹ إيقاف" : "🔊 استمع"}
-                  </button>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-                  {["مبتدئ 🟢", "متوسط 🟡", "متميز 🔵", "ضعف لغوي 🟠", "صعوبات تعلم 🔴", "فرط حركة ⚡"].map(l => (
-                    <span key={l} className="badge" style={{ background: c.primary + "20", color: c.primary }}>{l}</span>
-                  ))}
-                  {["بصري 👁", "سمعي 👂", "حركي 🤸"].map(l => (
-                    <span key={l} className="badge" style={{ background: c.secondary + "30", color: "#555" }}>{l}</span>
-                  ))}
-                </div>
-                <div className="content-box">{content.individual}</div>
-              </div>
-            )}
-          </>
-        )}
+                {/* TAB 3: INDIVIDUAL */}
+                {activeTab === 3 && (
+                  <>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                      {['مبتدئ 🟢', 'متوسط 🟡', 'متميز 🔵', 'ضعف لغوي 🟠', 'صعوبات تعلم 🔴', 'فرط حركة ⚡'].map(l => <span key={l} style={{ padding: '6px 14px', borderRadius: 50, fontSize: 12, fontWeight: 700, border: '1.5px solid rgba(201,168,76,0.4)', background: 'rgba(201,168,76,0.08)', color: '#1a1a2e' }}>{l}</span>)}
+                      {['بصري 👁', 'سمعي 👂', 'حركي 🤸'].map(l => <span key={l} style={{ padding: '6px 14px', borderRadius: 50, fontSize: 12, fontWeight: 700, border: '1.5px solid rgba(27,73,101,0.3)', background: 'rgba(27,73,101,0.06)', color: '#1b4965' }}>{l}</span>)}
+                    </div>
+                    <div className="md-content" dangerouslySetInnerHTML={{ __html: markdownToHTML(stored.individual) }} />
+                  </>
+                )}
 
-        <div className="watermark">© Mona Eraky — دفتر المعلم 2026 | الجاهز ⚡</div>
+              </div>
+            </>
+          )}
+
+        </div>
+        <div style={{ textAlign: 'center', color: '#bbb', fontSize: 11, padding: 24, letterSpacing: 1 }}>© Mona Eraky — دفتر المعلم 2026 | الجاهز ⚡</div>
       </div>
-    </div>
+    </>
   );
 }
