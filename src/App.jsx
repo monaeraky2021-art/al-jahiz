@@ -4,7 +4,7 @@ const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
 function markdownToHTML(md) {
   if (!md) return '';
-  let html = md
+  let html = mda
     .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
@@ -56,11 +56,11 @@ export default function AlJahiz() {
   // Check if we're in student/worksheet view mode
   const urlParams = new URLSearchParams(window.location.search);
   const wsParam = urlParams.get('ws');
-  const studentWorksheet = wsParam ? (() => { try { return JSON.parse(atob(wsParam)); } catch { return null; } })() : null;
+  const studentWorksheet = wsParam ? (() => { try { return JSON.parse(decodeURIComponent(wsParam)); } catch { return null; } })() : null;
 
   function shareWorksheet() {
     if (!stored.worksheet) return;
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(stored.worksheet))));
+    const encoded = encodeURIComponent(JSON.stringify(stored.worksheet));
     const url = `${window.location.origin}${window.location.pathname}?ws=${encoded}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
