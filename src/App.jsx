@@ -129,7 +129,7 @@ function markdownToHTML(md) {
     });
     return out + '</table>';
   });
-
+ 
   html = html.replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
   html = html.split('\n\n').map(block => {
     if (block.match(/^<(h[1-4]|ul|ol|table|hr|blockquote)/)) return block;
