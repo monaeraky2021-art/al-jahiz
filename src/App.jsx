@@ -49,8 +49,24 @@ export default function AlJahiz() {
   const [answers, setAnswers] = useState({});
   const [feedback, setFeedback] = useState({});
   const [speaking, setSpeaking] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const isEn = subject === 'Islamic Education';
+
+  // Check if we're in student/worksheet view mode
+  const urlParams = new URLSearchParams(window.location.search);
+  const wsParam = urlParams.get('ws');
+  const studentWorksheet = wsParam ? (() => { try { return JSON.parse(atob(wsParam)); } catch { return null; } })() : null;
+
+  function shareWorksheet() {
+    if (!stored.worksheet) return;
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(stored.worksheet))));
+    const url = `${window.location.origin}${window.location.pathname}?ws=${encoded}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    });
+  }
 
   async function callAPI(prompt, system) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -164,6 +180,11 @@ export default function AlJahiz() {
     .md-content blockquote{border-right:4px solid #c9a84c;background:rgba(201,168,76,0.06);padding:12px 16px;border-radius:0 8px 8px 0;margin:12px 0}
   `;
 
+  // STUDENT WORKSHEET VIEW
+  if (studentWorksheet) {
+    return <StudentView ws={studentWorksheet} />;
+  }
+
   return (
     <>
       <style>{css}</style>
@@ -242,12 +263,20 @@ export default function AlJahiz() {
                 {/* TAB HEADER */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, paddingBottom: 16, borderBottom: '2px solid #faf8f2' }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: '#1a1a2e' }}>{tabs[activeTab]}</div>
-                  {activeTab !== 1 && (
-                    <button onClick={() => toggleSpeak([stored.plan, '', stored.assessment, stored.individual][activeTab])}
-                      style={{ padding: '8px 18px', borderRadius: 50, border: 'none', background: speaking ? '#c1440e' : '#faf8f2', color: speaking ? '#fff' : '#1a1a2e', fontFamily: "'Tajawal',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                      {speaking ? '⏹ إيقاف' : '🔊 استمع'}
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {activeTab === 1 && stored.worksheet && (
+                      <button onClick={shareWorksheet}
+                        style={{ padding: '8px 18px', borderRadius: 50, border: 'none', background: copied ? '#2d6a4f' : '#c9a84c', color: '#fff', fontFamily: "'Tajawal',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.3s' }}>
+                        {copied ? '✅ تم نسخ الرابط!' : '🔗 شارك ورقة العمل'}
+                      </button>
+                    )}
+                    {activeTab !== 1 && (
+                      <button onClick={() => toggleSpeak([stored.plan, '', stored.assessment, stored.individual][activeTab])}
+                        style={{ padding: '8px 18px', borderRadius: 50, border: 'none', background: speaking ? '#c1440e' : '#faf8f2', color: speaking ? '#fff' : '#1a1a2e', fontFamily: "'Tajawal',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                        {speaking ? '⏹ إيقاف' : '🔊 استمع'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* TAB 0: PLAN */}
@@ -340,6 +369,133 @@ export default function AlJahiz() {
 
         </div>
         <div style={{ textAlign: 'center', color: '#bbb', fontSize: 11, padding: 24, letterSpacing: 1 }}>© Mona Eraky — دفتر المعلم 2026 | الجاهز ⚡</div>
+      </div>
+    </>
+  );
+}
+
+// STUDENT WORKSHEET COMPONENT
+function StudentView({ ws }) {
+  const [answers, setAnswers] = useState({});
+  const [feedback, setFeedback] = useState({});
+  const [speaking, setSpeaking] = useState(false);
+  const [done, setDone] = useState(false);
+
+  function toggleSpeak(text) {
+    if (!window.speechSynthesis) return;
+    if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ar-SA'; u.rate = 0.9; u.pitch = 1.1;
+    u.onend = () => setSpeaking(false);
+    window.speechSynthesis.speak(u);
+    setSpeaking(true);
+  }
+
+  function answerMCQ(id, ans, correct) { setAnswers(p => ({ ...p, [id]: ans })); setFeedback(p => ({ ...p, [id]: ans === correct })); }
+  function answerTF(id, ans, correct) { setAnswers(p => ({ ...p, [id]: ans })); setFeedback(p => ({ ...p, [id]: ans === correct })); }
+  function answerFill(id, val, correct) { setAnswers(p => ({ ...p, [id]: val })); setFeedback(p => ({ ...p, [id]: val.trim().toLowerCase() === correct.trim().toLowerCase() })); }
+
+  const score = Object.values(feedback).filter(Boolean).length;
+  const total = Object.keys(feedback).length;
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;600;700;800;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:'Tajawal',sans-serif;background:#faf8f2;direction:rtl}
+      `}</style>
+      <div style={{ minHeight: '100vh', background: '#faf8f2', fontFamily: "'Tajawal',sans-serif", direction: 'rtl' }}>
+
+        {/* STUDENT HEADER */}
+        <div style={{ background: 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', padding: '20px 24px' }}>
+          <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ color: '#c9a84c', fontSize: 12, fontWeight: 700, letterSpacing: 2, marginBottom: 4 }}>ورقة عمل تفاعلية</div>
+              <div style={{ color: '#fff', fontSize: 20, fontWeight: 900 }}>{ws.title}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button onClick={() => toggleSpeak(ws.questions?.map(q => q.question).join('. '))}
+                style={{ padding: '8px 16px', borderRadius: 50, border: 'none', background: speaking ? '#c1440e' : 'rgba(255,255,255,0.1)', color: '#fff', fontFamily: "'Tajawal',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {speaking ? '⏹' : '🔊 استمع'}
+              </button>
+              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, textAlign: 'left' }}>© Mona Eraky<br />دفتر المعلم</div>
+            </div>
+          </div>
+        </div>
+        <div style={{ height: 3, background: 'linear-gradient(90deg,#c9a84c,#f0d080,#c9a84c)' }} />
+
+        <div style={{ maxWidth: 700, margin: '0 auto', padding: '24px 16px' }}>
+
+          {ws.questions?.map((q, i) => {
+            const fb = feedback[q.id];
+            const hasAns = answers[q.id] !== undefined;
+            const borderColor = hasAns ? (fb === true ? '#52b788' : fb === false ? '#e76f51' : '#f0ece0') : '#f0ece0';
+            const bgColor = hasAns ? (fb === true ? '#f0fff8' : fb === false ? '#fff5f0' : '#fff') : '#fff';
+
+            return (
+              <div key={q.id} style={{ marginBottom: 16, borderRadius: 16, padding: 22, border: `2px solid ${borderColor}`, background: bgColor, boxShadow: '0 4px 16px rgba(26,26,46,0.06)', transition: 'all 0.3s' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#c9a84c,#f0d080)', color: '#1a1a2e', fontSize: 14, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.7, flex: 1, color: '#1a1a2e' }}>{q.question}</div>
+                </div>
+
+                {q.type === 'mcq' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {q.options.map((o, idx) => {
+                      const isSel = answers[q.id] === idx;
+                      let bg = '#faf8f2', col = '#1a1a2e', border = '#e8e4d9';
+                      if (isSel && fb === true) { bg = '#52b788'; col = '#fff'; border = '#52b788'; }
+                      if (isSel && fb === false) { bg = '#e76f51'; col = '#fff'; border = '#e76f51'; }
+                      return <button key={idx} disabled={hasAns} onClick={() => answerMCQ(q.id, idx, q.correct)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${border}`, background: bg, color: col, cursor: hasAns ? 'default' : 'pointer', fontFamily: "'Tajawal',sans-serif", fontSize: 15, fontWeight: 600, textAlign: 'right', transition: 'all 0.2s' }}>{o}</button>;
+                    })}
+                  </div>
+                )}
+
+                {q.type === 'truefalse' && (
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    {[true, false].map(v => {
+                      const isSel = answers[q.id] === v;
+                      let bg = '#faf8f2', col = '#1a1a2e', border = '#e8e4d9';
+                      if (isSel && fb === true) { bg = '#52b788'; col = '#fff'; border = '#52b788'; }
+                      if (isSel && fb === false) { bg = '#e76f51'; col = '#fff'; border = '#e76f51'; }
+                      return <button key={String(v)} disabled={hasAns} onClick={() => answerTF(q.id, v, q.correct)} style={{ flex: 1, padding: 14, borderRadius: 12, border: `2px solid ${border}`, background: bg, color: col, cursor: hasAns ? 'default' : 'pointer', fontFamily: "'Tajawal',sans-serif", fontSize: 16, fontWeight: 800, transition: 'all 0.2s' }}>{v ? '✓ صح' : '✗ خطأ'}</button>;
+                    })}
+                  </div>
+                )}
+
+                {q.type === 'fill' && (
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <input id={`s_fill_${q.id}`} disabled={hasAns} placeholder="اكتب إجابتك هنا..." style={{ flex: 1, padding: '12px 16px', border: '2px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, background: '#fff', outline: 'none' }} />
+                    {!hasAns && <button onClick={() => { const v = document.getElementById(`s_fill_${q.id}`)?.value || ''; answerFill(q.id, v, q.correct); }} style={{ padding: '12px 20px', borderRadius: 12, border: 'none', background: '#1a1a2e', color: '#fff', fontFamily: "'Tajawal',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>تحقق</button>}
+                  </div>
+                )}
+
+                {q.type === 'open' && (
+                  <textarea rows={3} placeholder="اكتب إجابتك هنا..." style={{ width: '100%', padding: 14, border: '2px solid #e8e4d9', borderRadius: 12, fontFamily: "'Tajawal',sans-serif", fontSize: 15, resize: 'vertical', background: '#fff', marginTop: 4, outline: 'none' }} />
+                )}
+
+                {hasAns && fb !== undefined && (
+                  <div style={{ marginTop: 12, fontWeight: 800, fontSize: 15, color: fb ? '#2d6a4f' : '#c1440e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {fb ? '✅ أحسنت! إجابة صحيحة' : `❌ الإجابة الصحيحة: ${q.type === 'truefalse' ? (q.correct ? 'صح' : 'خطأ') : q.type === 'mcq' ? q.options[q.correct] : q.correct}`}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* SCORE */}
+          {total > 0 && (
+            <div style={{ textAlign: 'center', padding: 28, background: 'linear-gradient(135deg,#1a1a2e,#2d2d5e)', borderRadius: 20, color: '#fff', marginTop: 8 }}>
+              <div style={{ fontSize: 48, fontWeight: 900, color: '#c9a84c' }}>{score}/{total}</div>
+              <div style={{ fontSize: 16, opacity: 0.8, marginTop: 8 }}>
+                {score === total ? '🌟 ممتاز! أجبت على جميع الأسئلة بشكل صحيح!' : score >= total / 2 ? '👍 جيد! استمر في المحاولة' : '💪 حاول مرة أخرى!'}
+              </div>
+            </div>
+          )}
+
+          <div style={{ textAlign: 'center', color: '#ccc', fontSize: 11, padding: '20px 0', letterSpacing: 1 }}>© Mona Eraky — دفتر المعلم 2026 | الجاهز ⚡</div>
+        </div>
       </div>
     </>
   );
