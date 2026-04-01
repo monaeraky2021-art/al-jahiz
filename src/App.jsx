@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
@@ -158,10 +158,10 @@ export default function AlJahiz() {
   const isEn = subject === 'Islamic Education';
 
   const lessonsList = isEn ? LESSONS_EN : LESSONS_AR;
-  const suggestions = useMemo(() => {
+  const suggestions = (() => {
     if (!search.trim() || !subject) return [];
     return lessonsList.filter(l => l.toLowerCase().includes(search.toLowerCase())).slice(0, 8);
-  }, [search, subject, isEn]);
+  })();
 
   // Check if we're in student/worksheet view mode
   const urlParams = new URLSearchParams(window.location.search);
@@ -189,7 +189,7 @@ export default function AlJahiz() {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 3000,
+        max_tokens: 3000
         system,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -621,7 +621,7 @@ function StudentView({ ws }) {
               </div>
             </div>
           )}
- 
+
           <div style={{ textAlign: 'center', color: '#ccc', fontSize: 11, padding: '20px 0', letterSpacing: 1 }}>© Mona Eraky — دفتر المعلم 2026 | الجاهز ⚡</div>
         </div>
       </div>
